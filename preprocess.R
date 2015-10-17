@@ -1,32 +1,31 @@
 # Load the data
-training <- read.csv("data/train.csv")
-test <- read.csv("data/test.csv")
-store <- read.csv("data/store.csv")
+require(data.table)
+training <- data.frame(fread("data/train.csv"))
+test <- data.frame(fread("data/test.csv"))
+store <- data.frame(fread("data/store.csv"))
 
 # Store table preprocessing
-notMissInd <- !is.na(store$CompetitionOpenSinceYear)
-store$CompetitionOpenSinceDate <- NA
-store$CompetitionOpenSinceDate[notMissInd] <- as.Date(paste("1", 
-                                                            store$CompetitionOpenSinceMonth[notMissInd], 
-                                                            store$CompetitionOpenSinceYear[notMissInd], 
-                                                            sep = "/"), 
-                                                      "%d/%m/%Y")
-store$Promo2 <- factor(store$Promo2)
-notMissInd <- store$Promo2 == 1
-store$Promo2SinceDate <- NA
-store$Promo2SinceDate[notMissInd] <- as.Date(store$Promo2SinceWeek[notMissInd] * 7, 
-                                             origin = as.Date(as.character(store$Promo2SinceYear[notMissInd]), "%Y"))
-levels(store$PromoInterval) <- c(0, 1:3)
+facNames <- c("StoreType", "Assortment", "Promo2", "PromoInterval")
+store[, facNames] <- data.frame(sapply(store[, facNames], as.factor))
 store$CompetitionDistance <- as.numeric(store$CompetitionDistance)
-store <- store[, -(5:9)]
+levels(store$PromoInterval) <- 0:3
+store <- store[, -7]
 
-# training and test table preprocessing
-facNames <- c("DayOfWeek", "Open", "Promo", "StateHoliday", "SchoolHoliday")
-training[, facNames] <- data.frame(apply(training[, facNames], 2, as.factor))
-test[, facNames] <- data.frame(apply(test[, facNames], 2, as.factor))
+# Training and test table preprocessing
+training$DayOfWeek <- as.numeric(training$DayOfWeek)
+test$DayOfWeek <- as.numeric(test$DayOfWeek)
+facNames <- c("Open", "Promo", "StateHoliday", "SchoolHoliday")
+training[, facNames] <- data.frame(sapply(training[, facNames], as.factor))
+test[, facNames] <- data.frame(sapply(test[, facNames], as.factor))
 levels(test$StateHoliday) <- levels(training$StateHoliday)
-training$Date <- as.numeric(as.Date(training$Date, "%Y-%m-%d"))
-test$Date <- as.numeric(as.Date(test$Date, "%Y-%m-%d"))
+training$Date <- as.Date(training$Date)
+test$Date <- as.Date(test$Date)
+training$Year <- as.numeric(format(training$Date, "%y"))
+training$Month <- as.numeric(format(training$Date, "%m"))
+training$Day <- as.numeric(format(training$Date, "%d"))
+test$Year <- as.numeric(format(test$Date, "%y"))
+test$Month <- as.numeric(format(test$Date, "%m"))
+test$Day <- as.numeric(format(test$Date, "%d"))
 levels(training$Open) <- c("Closed", "Open")
 levels(test$Open) <- c("Closed", "Open")
 
@@ -34,24 +33,74 @@ levels(test$Open) <- c("Closed", "Open")
 training <- merge(training, store)[, -1]
 test <- merge(test, store)[, -1]
 
-# Split predictors
-trainTime <- training[, c(2, 13, 14)]
-trainTime <- data.frame(cbind(Date = trainTime[, 1], 
-                              CompetitionOpenDateDiff = trainTime[, 1] - trainTime[, 2], 
-                              Promo2DateDiff = trainTime[, 1] - trainTime[, 3]))
-trainTime[is.na(trainTime)] <- -1e+4
-trainCross <- training[, -c(2:4, 13, 14)]
-trainCustomers <- data.frame(Customers = as.integer(training[, 4]))
-trainTarget <- data.frame(Sales = as.numeric(training[, 3]))
-testTime <- test[, c(3, 12, 13)]
-testTime <- data.frame(cbind(Date = testTime[, 1], 
-                              CompetitionOpenDateDiff = testTime[, 1] - testTime[, 2], 
-                              Promo2DateDiff = testTime[, 1] - testTime[, 3]))
-testTime[is.na(testTime)] <- -1e+4
-testCross <- test[, -c(1, 3, 12, 13)]
-testID <- data.frame(ID = as.integer(test[, 1]))
+# Remove zero sales
+training <- training[training$Sales > 0, !names(training) %in% "Open"]
+test <- test[, !names(test) %in% "Open"]
 
-# Customers feature test set
-modelCustom <- lm(Customers ~ ., data = cbind(trainCustomers, trainTime))
-testCustomers <- data.frame(Customers = predict(modelCustom, testTime))
-rm(list = c("store", "facNames", "notMissInd", "modelCustom", "training", "test"))
+# Training set features
+trainTime <- training[, c("Date", "Year", "Month", "Day", 
+                          "CompetitionOpenSinceMonth", "CompetitionOpenSinceYear", 
+                          "Promo2SinceWeek", "Promo2SinceYear")]
+trainTime$CompetitionOpenDays <- 0
+ind <- !is.na(trainTime[, 6])
+trainTime$CompetitionOpenDays[ind] <- trainTime$Date[ind] - as.Date(paste(trainTime[ind, 6], 
+                                                                          trainTime[ind, 5], 
+                                                                          1, sep = "-"))
+trainTime$CompetitionOpen <- "NoCompetition"
+ind <- trainTime$CompetitionOpenDays > 0
+trainTime$CompetitionOpen[ind] <- as.character(cut(trainTime$CompetitionOpenDays[ind], 
+                                                   c(0, 3 * 365, 6 * 365, 9 * 365, 12 * 365, max(trainTime$CompetitionOpenDays[ind])),
+                                                   c("0-3Years", "3-6Years", "6-9Years", "9-12Years", ">12Years")))
+trainTime$CompetitionOpen <- factor(trainTime$CompetitionOpen)
+trainTime$Promo2Weeks <- 0
+ind <- !is.na(trainTime[, 7])
+trainTime$Promo2Weeks[ind] <- as.numeric(format(trainTime$Date[ind], "%W")) - trainTime$Promo2SinceWeek[ind] +
+  (as.numeric(format(trainTime$Date[ind], "%Y")) - trainTime$Promo2SinceYear[ind]) * 52
+
+trainTime$Promo2 <- "NoPromo2"
+ind <- trainTime$Promo2Weeks > 0
+trainTime$Promo2[ind] <- as.character(cut(trainTime$Promo2Week[ind], 
+                                          c(0, 80, 160, 240, max(trainTime$Promo2Week[ind])),
+                                          c("0-80Weeks", "80-160Weeks", "160-240Weeks", ">240Weeks")))
+trainTime$Promo2 <- factor(trainTime$Promo2)
+trainTime <- trainTime[, c("Year", "Month", "Day", "CompetitionOpen", "Promo2")]
+trainStore <- training[, c("DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType",
+                           "Assortment", "CompetitionDistance", "PromoInterval")]
+trainCustomers <- as.integer(training[, "Customers"])
+trainTarget <- data.frame(Sales = as.numeric(training[, "Sales"]))
+training <- cbind(trainStore, trainTime, trainTarget)
+
+# Test set features
+testTime <- test[, c("Date", "Year", "Month", "Day", 
+                     "CompetitionOpenSinceMonth", "CompetitionOpenSinceYear", 
+                     "Promo2SinceWeek", "Promo2SinceYear")]
+testTime$CompetitionOpenDays <- 0
+ind <- !is.na(testTime[, 6])
+testTime$CompetitionOpenDays[ind] <- testTime$Date[ind] - as.Date(paste(testTime[ind, 6], 
+                                                                        testTime[ind, 5], 
+                                                                        1, sep = "-"))
+testTime$CompetitionOpen <- "NoCompetition"
+ind <- testTime$CompetitionOpenDays > 0
+testTime$CompetitionOpen[ind] <- as.character(cut(testTime$CompetitionOpenDays[ind], 
+                                                  c(0, 3 * 365, 6 * 365, 9 * 365, 12 * 365, max(testTime$CompetitionOpenDays[ind])), 
+                                                  c("0-3Years", "3-6Years", "6-9Years", "9-12Years", ">12Years")))
+testTime$CompetitionOpen <- factor(testTime$CompetitionOpen)
+testTime$Promo2Weeks <- 0
+ind <- !is.na(testTime[, 7])
+testTime$Promo2Weeks[ind] <- as.numeric(format(testTime$Date[ind], "%W")) - testTime$Promo2SinceWeek[ind] + 
+  (as.numeric(format(testTime$Date[ind], "%Y")) - testTime$Promo2SinceYear[ind]) * 52
+
+testTime$Promo2 <- "NoPromo2"
+ind <- testTime$Promo2Weeks > 0
+testTime$Promo2[ind] <- as.character(cut(testTime$Promo2Week[ind], 
+                                         c(0, 80, 160, 240, max(testTime$Promo2Week[ind])),
+                                         c("0-80Weeks", "80-160Weeks", "160-240Weeks", ">240Weeks")))
+testTime$Promo2 <- factor(testTime$Promo2)
+testTime <- testTime[, c("Year", "Month", "Day", "CompetitionOpen", "Promo2")]
+testStore <- test[, c("DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType", 
+                      "Assortment", "CompetitionDistance", "PromoInterval")]
+modelCustom <- lm(Customers ~ ., data = cbind(Customers = trainCustomers, trainTime))
+testCustomers <- predict(modelCustom, testTime)
+testId <- data.frame(Id = as.numeric(test[, "Id"]))
+test <- cbind(testStore, testTime, testId)
+rm(list = ls()[!ls() %in% c("training", "test", "trainCustomers", "testCustomers")])
