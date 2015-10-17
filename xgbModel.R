@@ -28,4 +28,4 @@ modelXgb <- xgb.train(param, data = trainMatrix, nround = 700,
 # Submission
 testPreds <- predict(modelXgb, data.matrix(test[, -ncol(test)]), missing = NA)
 submission <- data.frame(Id = test$Id, Sales = testPreds)
-write.csv(submission, "Data/submission.csv", row.names = FALSE)
+write.csv(submission, "Data/submissionXgb.csv", row.names = FALSE)
