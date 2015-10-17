@@ -105,4 +105,4 @@ modelCustom <- lm(Customers ~ ., data = cbind(Customers = trainCustomers, trainT
 testCustomers <- predict(modelCustom, testTime)
 testId <- data.frame(Id = as.numeric(test[, "Id"]))
 test <- cbind(testStore, testTime, testId)
-rm(list = ls()[!ls() %in% c("training", "test", "trainCustomers", "testCustomers")])
+rm(list = ls()[!ls() %in% c("training", "test")]) ## "trainCustomers", "testCustomers" can be added
