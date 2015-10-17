@@ -30,8 +30,10 @@ levels(training$Open) <- c("Closed", "Open")
 levels(test$Open) <- c("Closed", "Open")
 
 # Join tables
-training <- merge(training, store)[, -1]
-test <- merge(test, store)[, -1]
+training <- merge(training, store)
+test <- merge(test, store)
+training$Store <- as.factor(training$Store)
+test$Store <- as.factor(test$Store)
 
 # Remove zero sales
 training <- training[training$Sales > 0, !names(training) %in% "Open"]
@@ -64,7 +66,7 @@ trainTime$Promo2[ind] <- as.character(cut(trainTime$Promo2Week[ind],
                                           c("0-80Weeks", "80-160Weeks", "160-240Weeks", ">240Weeks")))
 trainTime$Promo2 <- factor(trainTime$Promo2)
 trainTime <- trainTime[, c("Year", "Month", "Day", "CompetitionOpen", "Promo2")]
-trainStore <- training[, c("DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType",
+trainStore <- training[, c("Store", "DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType",
                            "Assortment", "CompetitionDistance", "PromoInterval")]
 trainCustomers <- as.integer(training[, "Customers"])
 trainTarget <- data.frame(Sales = as.numeric(training[, "Sales"]))
@@ -97,7 +99,7 @@ testTime$Promo2[ind] <- as.character(cut(testTime$Promo2Week[ind],
                                          c("0-80Weeks", "80-160Weeks", "160-240Weeks", ">240Weeks")))
 testTime$Promo2 <- factor(testTime$Promo2)
 testTime <- testTime[, c("Year", "Month", "Day", "CompetitionOpen", "Promo2")]
-testStore <- test[, c("DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType", 
+testStore <- test[, c("Store", "DayOfWeek", "Promo", "StateHoliday", "SchoolHoliday", "StoreType", 
                       "Assortment", "CompetitionDistance", "PromoInterval")]
 modelCustom <- lm(Customers ~ ., data = cbind(Customers = trainCustomers, trainTime))
 testCustomers <- predict(modelCustom, testTime)

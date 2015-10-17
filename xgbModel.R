@@ -1,7 +1,8 @@
 # Split train and validation sets
 require(caret)
 require(xgboost)
-ind <- createDataPartition(training$Sales, p = 0.6, list = FALSE)
+set.seed(25)
+ind <- createDataPartition(training$Sales, p = 0.9, list = FALSE)
 valX <- training[-ind, -ncol(training)]
 valY <- training[-ind, ncol(training)]
 trainX <- training[ind, -ncol(training)]
@@ -23,15 +24,16 @@ rmspeObj <- function(preds, dtrain) {
 param <- list(max.depth = 8, eta = 0.25, obj = rmspeObj, eval_metric = evalMetric, 
               subsample = 0.7, colsample_bytree = 0.7)
 watchlist <- list(eval = valMatrix, train = trainMatrix)
-modelXgb <- xgb.train(param, data = trainMatrix, nround = 700, 
-                      watchlist, early.stop.round = 50, maximize = FALSE)
+modelXgb <- xgb.train(param, data = trainMatrix, nround = 1200, 
+                      watchlist, early.stop.round = 150, maximize = FALSE)
 
 # Full Model training
-trainX <- cbind(trainCross, trainTime)
-trainY <- trainTarget$Sales
+trainX <- training[, -ncol(training)]
+trainY <- training[, ncol(training)]
 trainMatrix <- xgb.DMatrix(data.matrix(trainX), label = trainY, missing = NA)
-param <- list(max.depth = 8, eta = 1, objective = "reg:linear")
-modelXgb <- xgboost(param, data = trainMatrix, nround = 700, verbose = 1)
+param <- list(max.depth = 8, eta = 0.2, obj = rmspeObj, eval_metric = evalMetric, 
+              subsample = 0.7, colsample_bytree = 0.7)
+modelXgb <- xgboost(param, data = trainMatrix, nround = 5000, verbose = 1)
 
 # Submission
 testPreds <- predict(modelXgb, data.matrix(test[, -ncol(test)]), missing = NA)
